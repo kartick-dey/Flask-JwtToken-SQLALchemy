@@ -1,0 +1,6 @@
+.env
+Scripts
+Lib
+Include
+pyvenv.cfg
+Flask-JWT-Env
