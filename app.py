@@ -6,6 +6,7 @@ import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
+from functools import wraps
 
 app = Flask(__name__)
 db_username = os.getenv('DB_USER')
@@ -36,7 +37,10 @@ class Todo(db.Model):
     user_id = db.Column(db.Integer)
 
 @app.route('/users', methods=['GET'])
-def get_users():
+@token_required
+def get_users(current_user):
+    if not current_user.admin:
+        return jsonify({"message": "Can not perform that function"})
     users = User.query.all()
     output = []
     for user in users:
@@ -48,7 +52,8 @@ def get_users():
     return jsonify({"users": output}), 200
 
 @app.route('/user/<public_id>', methods=['GET'])
-def get_user_by_id(public_id):
+@token_required
+def get_user_by_id(current_user, public_id):
     user = User.query.filter_by(public_id=public_id).first()
     if not user:
         return jsonify({"message": "No user found!"}), 202
@@ -60,7 +65,8 @@ def get_user_by_id(public_id):
     return jsonify({"user": user_data}), 200
 
 @app.route('/user', methods=['POST'])
-def create_user():
+@token_required
+def create_user(current_user):
     data = request.get_json()
     hashed_password = generate_password_hash(data['password'], method='sha256')
     new_user = User(public_id=str(uuid.uuid4()), name=data['name'], password = hashed_password, admin=data['admin'])
@@ -69,7 +75,8 @@ def create_user():
     return jsonify({"message": "new user created!"}), 201
 
 @app.route('/user/<public_id>', methods=['PUT'])
-def update_user(public_id):
+@token_required
+def update_user(current_user,public_id):
     data = request.get_json()
     hashed_password = generate_password_hash(data['password'], method='sha256')
     user = User.query.filter_by(public_id=public_id).first()
@@ -86,13 +93,34 @@ def update_user(public_id):
     return jsonify({"message": "update successfully!"}), 202
 
 @app.route('/user/<public_id>', methods=['DELETE'])
-def delete_user_by_id(public_id):
+@token_required
+def delete_user_by_id(current_user,public_id):
     user = User.query.filter_by(public_id=public_id).first()
     if not user:
         return jsonify({"message": "No user found!"}), 200
     db.session.delete(user)
     db.session.commit()
     return jsonify({"message":'user has been deleted!'}), 200
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'x-access-token' in request.headers:
+            token = request.headers['x-access-token']
+
+        if not token:
+            return jsonify({"message": "Token is missing"}), 401
+
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'])
+            current_user = User.query.filter_by(public_id=data['public_id']).first()
+        except Exception as e:
+            return jsonify({"message": 'Token is invalid'}), 401
+
+        return f(current_user, *args, **kwargs)
+
+    return decorated
 
 @app.route('/login')
 def login():
