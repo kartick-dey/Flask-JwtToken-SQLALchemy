@@ -36,6 +36,28 @@ class Todo(db.Model):
     conplete = db.Column(db.Boolean)
     user_id = db.Column(db.Integer)
 
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization']
+
+        if not token:
+            return jsonify({"message": "Token is missing"}), 401
+
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'])
+            current_user = User.query.filter_by(public_id=data['public_id']).first()
+        except Exception as e:
+            return jsonify({"message": 'Token is invalid'}), 401
+
+        return f(current_user, *args, **kwargs)
+
+    return decorated
+
+
 @app.route('/users', methods=['GET'])
 @token_required
 def get_users(current_user):
@@ -95,6 +117,8 @@ def update_user(current_user,public_id):
 @app.route('/user/<public_id>', methods=['DELETE'])
 @token_required
 def delete_user_by_id(current_user,public_id):
+    if not current_user.admin:
+        return jsonify({"message": "Can not perform that function"})
     user = User.query.filter_by(public_id=public_id).first()
     if not user:
         return jsonify({"message": "No user found!"}), 200
@@ -102,25 +126,6 @@ def delete_user_by_id(current_user,public_id):
     db.session.commit()
     return jsonify({"message":'user has been deleted!'}), 200
 
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        if 'x-access-token' in request.headers:
-            token = request.headers['x-access-token']
-
-        if not token:
-            return jsonify({"message": "Token is missing"}), 401
-
-        try:
-            data = jwt.decode(token, app.config['SECRET_KEY'])
-            current_user = User.query.filter_by(public_id=data['public_id']).first()
-        except Exception as e:
-            return jsonify({"message": 'Token is invalid'}), 401
-
-        return f(current_user, *args, **kwargs)
-
-    return decorated
 
 @app.route('/login')
 def login():
